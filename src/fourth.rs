@@ -258,7 +258,7 @@ impl<T: Debug> List<T> {
                 new_node.prev = cur_p;
                 unsafe {
                     new_node.next = (*cur_node.as_ptr()).next;
-                    let new_node_ptr = NonNull::new(Box::into_raw(new_node)); // !!!这里不能把into_raw写成&mut *new_node
+                    let new_node_ptr = NonNull::new(Box::into_raw(new_node)); // !!!这里不能把into_raw写成&mut *new_node, 否则boxdrop后指针依然存在，会导致野指针
                     if let Some(next_node) = (*cur_node.as_ptr()).next {
                         // 因为去掉了插最后一个点的情况，所以这里一定是Some
                         (*next_node.as_ptr()).prev = new_node_ptr;
@@ -359,11 +359,11 @@ mod tests {
         l.insert_by_index(2, 7);
 
         // -1 -> 1 -> 7 -> 2 -> 3 -> 4
-        //l.insert_by_index(7, 4);
+        l.insert_by_index(7, 4);
 
         assert_eq!(l.get_by_idx(0), Some(&-1));
         assert_eq!(l.get_by_idx(1), Some(&1));
-        //assert_eq!(l.get_by_idx(2), Some(&7));
+        assert_eq!(l.get_by_idx(2), Some(&7));
         assert_eq!(l.get_by_idx(3), Some(&2));
         assert_eq!(l.get_by_idx(4), Some(&3));
         assert_eq!(l.get_by_idx(5), Some(&4));
