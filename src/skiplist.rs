@@ -56,8 +56,36 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
             }
         }
 
+        if let Some(next_node) = next {
+            unsafe {
+                if (*next_node.as_ptr()).key == key {
+                    (*next_node.as_ptr()).key = key
+                }
+            }
+            return;
+        };
+
+        let new_node = Node {
+            key,
+            next: Vec::with_capacity(self.max_level),
+        };
+        let new_node_ptr = NonNull::new(Box::into_raw(Box::new(new_node)));
         let level = self.get_random_level();
-        if level > self.current_level {}
+        for i in self.current_level..level {
+            if let Some(node) = self.head {
+                unsafe {
+                    (*node.as_ptr()).next.push(Some(new_node_ptr));
+                }
+                self.tmp[i] = Some(node);
+            };
+            self.current_level += 1;
+        }
+
+        for i in 0..self.current_level {
+            self.tmp[i]
+                .take()
+                .map(|prev_node| unsafe { (*prev_node.as_ptr()).next = new_node_ptr })
+        }
     }
 
     fn get_random_level(&self) -> usize {
