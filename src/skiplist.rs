@@ -1,3 +1,4 @@
+use rand;
 use std::ptr::NonNull;
 
 pub struct SkipList<T>
@@ -9,6 +10,7 @@ where
     current_len: usize,
     ratio: u8,
     head: Link<T>,
+    rng: rand::ThreadRng,
 
     tmp: Vec<Link<T>>,
 }
@@ -27,6 +29,7 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
             current_len: 0,
             current_level: 0,
             ratio,
+            rng: rand::thread_rng(),
             head: NonNull::new(Box::into_raw(Box::new(Node {
                 next: Vec::with_capacity(max_level),
                 key: T::default(),
@@ -35,8 +38,31 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
         }
     }
 
-    pub fn get(key: T) -> T {
-        unimplemented!()
+    pub fn get(&self, key: T) -> Option<&T> {
+        let mut prev = self.head;
+        let mut next;
+        for i in (0..self.current_level).rev() {
+            unsafe {
+                next = prev.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
+                while let Some(node) = next {
+                    if (*node.as_ptr()).key >= key {
+                        break;
+                    }
+                    prev = next;
+                    next = prev.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
+                }
+                self.tmp[i] = prev;
+            }
+        }
+
+        if let Some(next_node) = next {
+            unsafe {
+                if (*next_node.as_ptr()).key == key {
+                    return Some(&(*next_node.as_ptr()).key);
+                }
+            }
+        };
+        None
     }
 
     pub fn set(&mut self, key: T) {
