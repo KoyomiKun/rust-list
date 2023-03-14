@@ -1,16 +1,19 @@
-use rand;
-use std::ptr::NonNull;
+#![feature(test)]
+extern crate test;
+
+use rand::{rngs::ThreadRng, Rng};
+use std::{fmt::Display, ptr::NonNull};
 
 pub struct SkipList<T>
 where
-    T: PartialOrd + Eq + Default,
+    T: PartialOrd + Default,
 {
     max_level: usize,
     current_level: usize,
     current_len: usize,
-    ratio: u8,
+    ratio: usize,
     head: Link<T>,
-    rng: rand::ThreadRng,
+    rng: ThreadRng,
 
     tmp: Vec<Link<T>>,
 }
@@ -22,8 +25,8 @@ struct Node<T> {
     key: T,
 }
 
-impl<T: PartialOrd + Eq + Default> SkipList<T> {
-    pub fn new(max_level: usize, ratio: u8) -> Self {
+impl<T: PartialOrd + Display + Default> SkipList<T> {
+    pub fn new(max_level: usize, ratio: usize) -> Self {
         Self {
             max_level,
             current_len: 0,
@@ -38,9 +41,10 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
         }
     }
 
-    pub fn get(&self, key: T) -> Option<&T> {
+    // TODO: tmp 能不能拿出来，不用mut
+    pub fn get(&mut self, key: T) -> Option<&T> {
         let mut prev = self.head;
-        let mut next;
+        let mut next = None;
         for i in (0..self.current_level).rev() {
             unsafe {
                 next = prev.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
@@ -67,7 +71,7 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
 
     pub fn set(&mut self, key: T) {
         let mut prev = self.head;
-        let mut next;
+        let mut next = None;
         for i in (0..self.current_level).rev() {
             unsafe {
                 next = prev.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
@@ -78,6 +82,7 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
                     prev = next;
                     next = prev.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
                 }
+
                 self.tmp[i] = prev;
             }
         }
@@ -91,30 +96,126 @@ impl<T: PartialOrd + Eq + Default> SkipList<T> {
             return;
         };
 
-        let new_node = Node {
+        let level = self.get_random_level();
+        let mut new_node = Node {
             key,
             next: Vec::with_capacity(self.max_level),
         };
+
+        for _ in 0..=level {
+            new_node.next.push(None);
+        }
+
         let new_node_ptr = NonNull::new(Box::into_raw(Box::new(new_node)));
-        let level = self.get_random_level();
-        for i in self.current_level..level {
+        for _ in self.current_level..level {
             if let Some(node) = self.head {
                 unsafe {
-                    (*node.as_ptr()).next.push(Some(new_node_ptr));
+                    (*node.as_ptr()).next.push(None);
                 }
-                self.tmp[i] = Some(node);
             };
+            self.tmp.push(self.head);
             self.current_level += 1;
         }
 
+        println!("level: {} current_level: {}", level, self.current_level);
+
+        for i in 0..level {
+            self.tmp[i].take().map(|prev_node| unsafe {
+                let new_node = &mut *new_node_ptr.unwrap().as_ptr();
+                new_node.next[i] = (*prev_node.as_ptr()).next[i];
+                (*prev_node.as_ptr()).next[i] = new_node_ptr;
+            });
+        }
+
+        self.current_len += 1;
+    }
+
+    fn get_random_level(&mut self) -> usize {
+        let mut l = 1;
+        for _ in 1..self.max_level {
+            let gen_v: usize = self.rng.gen();
+            if gen_v % self.ratio == 0 {
+                l += 1;
+            }
+        }
+        l
+    }
+}
+
+impl<T: Default + PartialOrd + Display> Display for SkipList<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::from("");
         for i in 0..self.current_level {
-            self.tmp[i]
-                .take()
-                .map(|prev_node| unsafe { (*prev_node.as_ptr()).next = new_node_ptr })
+            unsafe {
+                let mut next = self.head.and_then(|prev_ptr| (*prev_ptr.as_ptr()).next[i]);
+                while let Some(node) = next {
+                    s += format!("{}=>", (*node.as_ptr()).key).as_str();
+                    next = (*node.as_ptr()).next[i];
+                }
+                s.push('\n');
+            }
+        }
+        f.pad(&s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestK {
+        k: i32,
+        v: i32,
+    }
+
+    impl Default for TestK {
+        fn default() -> Self {
+            Self { k: 0, v: 0 }
         }
     }
 
-    fn get_random_level(&self) -> usize {
-        0
+    impl PartialEq for TestK {
+        fn eq(&self, other: &Self) -> bool {
+            self.k == other.k
+        }
+    }
+
+    impl PartialOrd for TestK {
+        fn gt(&self, other: &Self) -> bool {
+            self.k > other.k
+        }
+
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.k.partial_cmp(&other.k)
+        }
+    }
+
+    impl Display for TestK {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "[k: {}, v: {}]", self.k, self.v)
+        }
+    }
+
+    #[test]
+    fn basic_test() {
+        let mut l = SkipList::new(32, 4);
+        l.set(TestK { k: 1, v: 1 });
+        l.set(TestK { k: 2, v: 1 });
+        l.set(TestK { k: 3, v: 1 });
+        l.set(TestK { k: 4, v: 1 });
+        println!("{}", l);
+        assert_eq!(l.get(TestK { k: 1, v: 0 }).unwrap().v, 1);
+    }
+
+    #[bench]
+    fn basic_bench(b: &mut test::Bencher) {
+        let mut l = SkipList::new(32, 4);
+        let r = rand::thread_rng();
+        b.iter(|| {
+            l.set(TestK {
+                k: r.gen(),
+                v: r.gen(),
+            })
+        })
     }
 }
