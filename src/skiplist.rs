@@ -1,8 +1,6 @@
-#![feature(test)]
-extern crate test;
-
 use rand::{rngs::ThreadRng, Rng};
 use std::{fmt::Display, ptr::NonNull};
+extern crate test;
 
 pub struct SkipList<T>
 where
@@ -209,13 +207,16 @@ mod tests {
 
     #[bench]
     fn basic_bench(b: &mut test::Bencher) {
-        let mut l = SkipList::new(32, 4);
-        let r = rand::thread_rng();
+        let mut r = rand::thread_rng();
+        // 274,301 / 10000 = 27ns/op
         b.iter(|| {
-            l.set(TestK {
-                k: r.gen(),
-                v: r.gen(),
-            })
+            let mut l = SkipList::new(32, 4);
+            for _ in 0..10000 {
+                l.set(TestK {
+                    k: r.gen(),
+                    v: r.gen(),
+                });
+            }
         })
     }
 }
